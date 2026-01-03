@@ -70,7 +70,7 @@ async def upload_document(
             )
         # Check if user ID matches topic number (1-5)
         topic_number = topic.name.split('_')[-1]
-        if jwt_data.sub != topic_number:
+        if jwt_data.nickname != topic_number:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="User ID must match system topic number"
@@ -123,7 +123,7 @@ async def upload_document(
     
     # Upload to MinIO
     try:
-        object_name = f"{document.id}_{filename}"
+        object_name = f"{document.id}" #change to f"{document.id}_{filename}
         storage_url = await minio_service.upload_file(
             bucket_name=str(topic_uuid),
             object_name=object_name,
@@ -148,6 +148,7 @@ async def upload_document(
     try:
         await kafka_producer.send_document_message(
             doc_id=str(document.id),
+            doc_name = str(filename),
             user_id=jwt_data.sub,
             topic_name=str(topic_uuid),
             document_url=storage_url,

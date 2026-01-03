@@ -36,6 +36,7 @@ class KafkaProducerService:
     async def send_document_message(
         self,
         doc_id: str,
+        doc_name: str,
         user_id: str,
         topic_name: str,
         document_url: str,
@@ -54,6 +55,7 @@ class KafkaProducerService:
         message = {
             "doc_id": doc_id,
             "user_id": user_id,
+            "doc_name": doc_name,
             "topic_name": topic_name,
             "document_url": document_url,
             "upload_time": datetime.utcnow().isoformat() + "Z"

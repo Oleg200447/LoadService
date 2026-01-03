@@ -102,6 +102,7 @@ class AddUserToTopic(BaseModel):
 class DocumentKafkaMessage(BaseModel):
     """Kafka message for document operations."""
     doc_id: str
+    doc_name: str
     user_id: str
     topic_name: str
     document_url: Optional[str] = None
