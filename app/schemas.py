@@ -11,6 +11,7 @@ class JWTData(BaseModel):
     sub: str  # user_id
     nickname: str
     role: str  # "user" or "system"
+    iss: str
     exp: int
 
 

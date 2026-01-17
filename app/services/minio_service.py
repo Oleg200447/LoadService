@@ -146,20 +146,20 @@ class MinIOService:
     ) -> str:
         """
         Generate presigned URL for downloading file.
-        
+
         Args:
             bucket_name: Bucket name
             object_name: Object name in bucket
-            
+
         Returns:
             str: Presigned URL
-            
+
         Raises:
             Exception: If URL generation fails
         """
         try:
             from datetime import timedelta
-            
+
             url = self.client.presigned_get_object(
                 bucket_name,
                 object_name,
@@ -167,10 +167,40 @@ class MinIOService:
             )
             logger.info(f"Presigned URL generated for: {bucket_name}/{object_name}")
             return url
-            
+
         except S3Error as e:
             logger.error(f"Failed to generate presigned URL for {bucket_name}/{object_name}: {e}")
             raise Exception(f"Failed to generate download URL: {e}")
+
+    async def download_file(
+        self,
+        bucket_name: str,
+        object_name: str
+    ) -> bytes:
+        """
+        Download file content from MinIO.
+
+        Args:
+            bucket_name: Bucket name
+            object_name: Object name in bucket
+
+        Returns:
+            bytes: File content
+
+        Raises:
+            Exception: If download fails
+        """
+        try:
+            response = self.client.get_object(bucket_name, object_name)
+            file_data = response.read()
+            response.close()
+            response.release_conn()
+            logger.info(f"File downloaded: {bucket_name}/{object_name}")
+            return file_data
+
+        except S3Error as e:
+            logger.error(f"Failed to download file {bucket_name}/{object_name}: {e}")
+            raise Exception(f"Failed to download file: {e}")
 
 
 # Singleton instance

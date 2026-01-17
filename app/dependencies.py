@@ -48,6 +48,7 @@ async def get_jwt_data(
         )
         
         jwt_data = JWTData(
+            iss=payload.get("iss"),
             sub=payload.get("sub"),
             nickname=payload.get("nickname"),
             role=payload.get("role"),

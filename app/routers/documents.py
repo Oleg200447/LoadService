@@ -1,9 +1,12 @@
 """Document management endpoints."""
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 import uuid
 import os
+import io
+import mimetypes
 from typing import Annotated
 
 from app.database import get_db
@@ -18,6 +21,7 @@ from app.models import Document, Topic, TopicAccess
 from app.services.minio_service import minio_service
 from app.services.kafka_producer import kafka_producer
 from app.utils.logger import logger
+from app.config import settings
 
 router = APIRouter(prefix="/documents", tags=["Documents"])
 
@@ -123,7 +127,7 @@ async def upload_document(
     
     # Upload to MinIO
     try:
-        object_name = f"{document.id}" #change to f"{document.id}_{filename}
+        object_name = f"{document.id}_{filename}" #change to f"{document.id}
         storage_url = await minio_service.upload_file(
             bucket_name=str(topic_uuid),
             object_name=object_name,
@@ -151,7 +155,7 @@ async def upload_document(
             doc_name = str(filename),
             user_id=jwt_data.sub,
             topic_name=str(topic_uuid),
-            document_url=storage_url,
+            document_url=f"http://{settings.MINIO_ENDPOINT}/{str(topic_uuid)}/{object_name}",
             file_extension=file_ext
         )
     except Exception as e:
@@ -306,84 +310,94 @@ async def get_document_status(
     return document
 
 
-@router.get("/{doc_id}/download", response_model=DocumentDownloadResponse)
+@router.get("/{doc_id}/download")
 async def download_document(
     doc_id: str,
     jwt_data: JWTData = Depends(get_jwt_data),
     db: AsyncSession = Depends(get_db)
 ):
     """
-    Get presigned URL for downloading a document.
-    
+    Download a document file directly.
+
     - **doc_id**: ID of the document to download
-    
+
     Requires read or owner access to the topic containing the document.
     """
     logger.info(f"Download request from user {jwt_data.sub} for document {doc_id}")
-    
+
+    # Validate document ID
     try:
         doc_uuid = uuid.UUID(doc_id)
     except ValueError:
+        logger.warning(f"Invalid document_id format: {doc_id}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid document_id format"
         )
-    
-    # Get document with topic
+
+    # Fetch document
     stmt = select(Document).where(Document.id == doc_uuid)
     result = await db.execute(stmt)
     document = result.scalar_one_or_none()
-    
     if not document:
+        logger.warning(f"Document not found: {doc_id}")
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Document not found"
         )
-    
-    # Get topic
+
+    # Fetch topic
     stmt = select(Topic).where(Topic.id == document.topic_id)
     result = await db.execute(stmt)
     topic = result.scalar_one_or_none()
-    
     if not topic:
+        logger.warning(f"Topic not found for document: {doc_id}")
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Topic not found"
         )
-    
+
     # Check access rights
     user_uuid = uuid.UUID(jwt_data.sub)
-    
     if not topic.is_system:
-        # User topics: require owner or reader access
         stmt = select(TopicAccess).where(
             TopicAccess.topic_id == document.topic_id,
             TopicAccess.user_id == user_uuid
         )
         result = await db.execute(stmt)
         access = result.scalar_one_or_none()
-        
         if not access:
+            logger.warning(f"User {jwt_data.sub} has no access to topic {topic.id}")
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Access to topic required to download documents"
             )
-    # System topics are accessible to all users for reading
-    
-    # Generate presigned URL
+
+    # Download file from MinIO
     try:
         object_name = document.storage_url.split('/')[-1]
-        download_url = await minio_service.get_presigned_url(
+        file_data = await minio_service.download_file(
             bucket_name=str(document.topic_id),
             object_name=object_name
         )
-        
-        logger.info(f"Download URL generated for document: {doc_id}")
-        return DocumentDownloadResponse(download_url=download_url)
-        
+
+        # Determine content type
+        content_type, _ = mimetypes.guess_type(document.filename)
+        if content_type is None:
+            content_type = "application/octet-stream"
+
+        logger.info(f"File downloaded successfully from MinIO for document {doc_id}")
+
+        # Wrap bytes in BytesIO and return StreamingResponse
+        return StreamingResponse(
+            io.BytesIO(file_data),
+            media_type=content_type,
+            headers={"Content-Disposition": f'attachment; filename="{document.filename}"'}
+        )
+
     except Exception as e:
-        logger.error(f"Failed to generate download URL: {e}")
+        logger.error(f"Failed to download file from MinIO for document {doc_id}: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to generate download URL"
+            detail="Failed to download file"
         )

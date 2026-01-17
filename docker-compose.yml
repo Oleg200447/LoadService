@@ -127,7 +127,7 @@ services:
       - test_network
     restart: unless-stopped
     ports:
-      - "8011:8000" 
+      - "8011:8011" 
 
 networks:
   test_network:
